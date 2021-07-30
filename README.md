@@ -1,2 +1,3 @@
 # ericcadena.github.io
-##Unit 12 Data Science
+##Case 2 Study
+Link to Youtube Presentation:    https://www.youtube.com/watch?v=up0r6qSmRMk
