@@ -1,0 +1,300 @@
+---
+title: "Attrition Analysis"
+author: "Eric Cadena"
+date: "7/29/2021"
+output: html_document
+Link to Youtube:  https://www.youtube.com/watch?v=up0r6qSmRMk
+---
+
+#Executive Summary
+DDS Analytics has provided an employee data set and wants to know the key factors
+leading to an employee leaving the Frito Lay company.  After conducting Explanatory
+Data Analysis, Linear Regression models and creating a predictive model with a
+greater than 60% in Accuracy, Specificity and Sensitivity, it was concluded that
+being in a Manager role vs. a Non Manager role, Yearly Salary and Stock Option Levels
+were the biggest predictors of Attrition.  If you are in a Non Manager role, earning under $50k
+a year, and you are not invested in the Company through Stock Options, there is a strong chance
+you will leave the Company.  An interesting secondary finding is that relationships matter to attrition in the following way; if you have been with the same manager for over 2 years, you are likely to stay with the company and if you are a divorced employee you are more likely to stay with the company.
+
+#Introduction
+The analysis was conducted using, heavy visualization for the purpose
+of conducting a thorough Explanatory Data Analysis while looking at the
+relationship between and among several variables.  Once hints emerged as to
+the key factors leading to attrition, a linear regression model was implemented
+and prediction tests were run until a predictive model was built that could
+accurately tell us which factors can be identified an an employee that puts
+him at risk of leaving the company.
+
+```{r}
+#Packages used
+library(tidyverse)
+library(ggplot2)
+library(plotly)
+library(class)
+library(caret)
+library(e1071)
+library(plyr)
+library(ROSE)
+library(scales)
+library(plotly)
+library(data.table)
+
+#Set up Primary Data Source in R
+setwd('C:/Users/181429/Desktop/Semester 1 Courses/Doing Data Science/Unit 14 and 15 Case Study 2')  ## Set working directory
+work <- read.csv("C:/Users/181429/Desktop/Semester 1 Courses/Doing Data Science/Unit 14 and 15 Case Study 2/CaseStudy2-data.csv", stringsAsFactors = TRUE, na.strings='..')
+work = data.frame(work)
+```
+
+```{r}
+#PART 1 OF THE ANALYSIS IS DATA TIDYING 
+#Change JobRole Cells to be more readable in a visual display
+work = work%>%mutate(JobRole=as.character(JobRole))%>%mutate(JobRole = replace(JobRole, JobRole=='Sales Executive', 'Sale Exe'))%>%
+  mutate(JobRole = replace(JobRole, JobRole=='Research Director', 'Res Dir'))%>%
+  mutate(JobRole = replace(JobRole, JobRole=='Manufacturing Director', 'Man Dir'))%>%
+  mutate(JobRole = replace(JobRole, JobRole=='Research Scientist', 'Res Sci'))%>%
+  mutate(JobRole = replace(JobRole, JobRole=='Sales Representative', 'Sale Rep'))%>%
+  mutate(JobRole = replace(JobRole, JobRole=='Healthcare Representative', 'Health Rep'))%>%
+  mutate(JobRole = replace(JobRole, JobRole=='Manager', 'MGR'))%>%
+  mutate(JobRole = replace(JobRole, JobRole=='Human Resources', 'HR'))%>%
+  mutate(JobRole = replace(JobRole, JobRole=='Laboratory Technician', 'Lab Tech'))
+
+
+#Create a yearly Salary column
+#Creating Salary
+work$Salary = work$MonthlyIncome*12
+
+#Manager vs Not Manager
+work1 <- within(work, MGR <- ifelse(JobRole=="Sale Exe","MANAGER",
+ifelse(JobRole=="Lab Tech","NOT MANAGER",
+ifelse(JobRole=="HR", "MANAGER",
+ifelse(JobRole=="MGR","MANAGER",
+ifelse(JobRole=="Health Rep", "NOT MANAGER",
+ifelse(JobRole=="Sale Rep", "NOT MANAGER",
+ifelse(JobRole=="Res Sci", "NOT MANAGER",
+ifelse(JobRole=="Man Dir", "MANAGER",
+ifelse(JobRole=="Res Dir", "MANAGER",NA))))))))))
+
+#Creating Columns to create binary codes and categorize (Manager-1 vs Not Manager-0), (Single/Married-0 vs Divorced-1),
+#(Attrition-0 vs Not-Attrition-1)
+work2 <- within(work1, MGRcode<- ifelse(MGR=="MANAGER","1", ifelse(MGR=="NOT MANAGER","0",NA)))
+
+work3 <- within(work2, Maritalcode<- ifelse(MaritalStatus=="Single","0",
+ifelse(MaritalStatus=="Married","0",
+ifelse(MaritalStatus=="Divorced","1", NA))))
+
+work4 <- within(work3, Attritioncode<- ifelse(Attrition=="No","1", ifelse(Attrition=="Yes","0",NA)))
+
+work5 <- within(work4, Stockcode <- ifelse(StockOptionLevel=="0","Not Invested",
+ifelse(StockOptionLevel=="1","Sort of Invested",
+ifelse(StockOptionLevel=="2","Invested",
+ifelse(StockOptionLevel=="3","Really Invested",NA)))))
+
+work6 <- within(work5, Timemgr <- ifelse(YearsWithCurrManager=="0","No Relationship",
+ifelse(YearsWithCurrManager=="1","No Relationship",
+ifelse(YearsWithCurrManager=="2","Some Relationship",
+ifelse(YearsWithCurrManager=="3","Some Relationship",
+ifelse(YearsWithCurrManager=="4","Some Relationship",
+ifelse(YearsWithCurrManager=="5","Personal Relationship",
+ifelse(YearsWithCurrManager=="6","Personal Relationship", 
+ifelse(YearsWithCurrManager=="7","Personal Relationship",
+ifelse(YearsWithCurrManager=="8","Personal Relationship", 
+ifelse(YearsWithCurrManager=="9","Personal Relationship",
+ifelse(YearsWithCurrManager=="10","Personal Relationship", 
+ifelse(YearsWithCurrManager=="11","Personal Relationship",
+ifelse(YearsWithCurrManager=="12","Personal Relationship", 
+ifelse(YearsWithCurrManager=="13","Personal Relationship",
+ifelse(YearsWithCurrManager=="14","Personal Relationship", 
+ifelse(YearsWithCurrManager=="15","Personal Relationship", 
+ifelse(YearsWithCurrManager=="16","Persoanl Relationship",
+ifelse(YearsWithCurrManager=="17","Personal Relationship",NA)))))))))))))))))))
+
+#Creating Salary Ranges
+work7 <- within(work6, Range <- ifelse(Salary<50000, "0k-50k",
+ifelse(Salary>50000 & Salary < 75000, "50k-75k",
+ifelse(Salary>75000 & Salary < 100000, "75k-100k",
+ifelse(Salary > 100000, ">100k", NA))))) 
+
+
+#Coding Salaries to conduct Statistics tests
+work8 = within(work7, Range2 <- ifelse(Salary<=20000, "20", 
+ifelse(Salary>20000 & Salary<=25000, "25", 
+ifelse(Salary>25000 & Salary<=30000, "30",
+ifelse(Salary>30000 & Salary<=35000, "35",
+ifelse(Salary>35000 & Salary<=40000, "40",
+ifelse(Salary>40000 & Salary<=45000, "45",
+ifelse(Salary>45000 & Salary<=50000, "50",
+ifelse(Salary>50000 & Salary<=55000, "55",
+ifelse(Salary>55000 & Salary<=60000, "60", 
+ifelse(Salary>60000 & Salary<=65000, "65",
+ifelse(Salary>65000 & Salary<=70000, "70",
+ifelse(Salary>70000 & Salary<=75000, "75",
+ifelse(Salary>75000, "80",NA))))))))))))))
+
+#Coding Business Travel
+work9 = within(work8, Travel <- ifelse(BusinessTravel=="Travel_Rarely","1",
+ifelse(BusinessTravel=="Travel_Frequently","0",
+ifelse(BusinessTravel=="Non-Travel","2",NA))))
+      
+#WE ARE NOT CONCERNED WITH THOSE HIRING EMPLOYEES and so we will Eliminate HR from the analysis.
+##WE ARE NOT CONCERNED WITH THE TOP OF THE COMPANY HEIRARCHY 
+#On a side note, HR is an insignificant portion of those leaving the company
+work10 = filter(work9, JobRole != "HR")
+work10
+```
+
+```{r}
+#CONDUCT AND EXPLORATORY DATA ANALYSIS (EDA)
+#Attrition Rate
+ggplot(work10, aes(x=Attrition))+
+  geom_bar(aes(y=(..count..)/sum(..count..)))+
+  geom_text(aes(y=((..count..)/sum(..count..)),
+        label=scales::percent((..count..)/sum(..count..))),
+        stat="count",vjust=-0.25)
+
+
+#Attrition MGR vs Not Manager
+ggplot(work10, aes(x=MGR, fill=Attrition))+
+  geom_bar(aes(y=(..count..)/sum(..count..)))+
+  geom_text(aes(y=((..count..)/sum(..count..)),
+                label=scales::percent((..count..)/sum(..count..))),
+            stat="count",vjust=-0.25)
+                                  
+#Salary and Attrition
+ggplot(work10, aes(x=as.character(Range), fill=Attrition))+
+  geom_bar(aes(y=(..count..)/sum(..count..)))+
+  geom_text(aes(y=((..count..)/sum(..count..)),
+                label=scales::percent((..count..)/sum(..count..))),
+            stat="count",vjust=-0.25)
+
+#Job Role and Attrition
+ggplot(work10, aes(x=JobRole, fill=Attrition))+
+  geom_bar(aes(y=(..count..)/sum(..count..)))+
+  geom_text(aes(y=((..count..)/sum(..count..)),
+                label=scales::percent((..count..)/sum(..count..))),
+            stat="count",vjust=-0.25)
+
+
+#EDA showing relationship between Earnings and Job Role with a look at a variety of variables like Number of Companies Worked, Education, Stock Option Level, Years at Company,
+#Years in Current Role, overtime, Sex, Marital Status, Business Travel & Department 
+ggplot(data=work10)+geom_bar(mapping=aes(x=JobRole, fill=Attrition))
+ggplot(data=work10)+geom_point(mapping=aes(x=NumCompaniesWorked, y=Salary, color=Attrition, size=Attrition, shape=Attrition))+facet_grid(JobRole~OverTime)
+ggplot(data=work10)+geom_point(mapping=aes(x=Education, y=Salary, color=Attrition, size=Attrition, shape=Attrition))+facet_grid(JobRole~Gender)
+ggplot(data=work10)+geom_point(mapping=aes(x=StockOptionLevel, y=Salary, color=Attrition, size=Attrition, shape=Attrition))+facet_grid(JobRole~MaritalStatus)
+ggplot(data=work10)+geom_point(mapping=aes(x=YearsAtCompany, y=Salary, color=Attrition, size=Attrition, shape=Attrition))+facet_grid(JobRole~BusinessTravel)
+ggplot(data=work10)+geom_point(mapping=aes(x=YearsInCurrentRole, y=Salary, color=Attrition, size=Attrition, shape=Attrition))+facet_grid(JobRole~Department)
+
+
+
+#The data shows a clear relationship between the Job Role that leads to Attrition?
+
+
+#EDA ON STAYING OR LEAVING IF YOU ARE IN A HIGH ATTRITION JOB BASED ON A VARIABLE OTHER THAN SALARY
+#with current manager (*Postiive)
+ggplot(work10, aes(x=factor(Attrition)))+geom_bar(aes(y=(..count..)/sum(..count..), fill=as.factor(Timemgr)))+
+  scale_y_continuous(labels=percent)+xlab("No=Stay with Co. Yes=Leave Co.")+ylab("Overall Percent")+ggtitle("0 Isolates 0-1 year with Curr MGr")
+
+#with stock options (*Positive)
+ggplot(work10, aes(x=factor(Attrition)))+geom_bar(aes(y=(..count..)/sum(..count..), fill=as.factor(Stockcode)))+
+  scale_y_continuous(labels=percent)+xlab("No=Stay with Co. Yes=Leave Co")+ylab("Overall Percent")+ggtitle("0 Isolates 0 or 1 Level Stock Option")
+
+#marital Status (*Positive)
+ggplot(work10, aes(x=factor(Attrition)))+geom_bar(aes(y=(..count..)/sum(..count..), fill=as.factor(Maritalcode)))+
+  scale_y_continuous(labels=percent)+xlab("No=Stay with Co. Yes=Leave Co")+ylab("Overall Percent")+ggtitle("0 Isolates Single/Married")
+
+#with work life balance (*Even employees happy with this are leaving)
+ggplot(work10, aes(x=factor(Attrition)))+geom_bar(aes(y=(..count..)/sum(..count..), fill=as.factor(WorkLifeBalance)))+
+  scale_y_continuous(labels=percent)+xlab("No=Stay with Co. Yes=Leave Co")+ylab("Overall Percent")+ggtitle("Work Life Balance at 4 levels")
+
+#Relationship Satisfaction (*Not a Factor)
+ggplot(work10, aes(x=factor(Attrition)))+geom_bar(aes(y=(..count..)/sum(..count..), fill=as.factor(RelationshipSatisfaction)))+
+  scale_y_continuous(labels=percent)+xlab("No=Stay with Co. Yes=Leave Co")+ylab("Overall Percent")+ggtitle("Relationship Satisfaction at 4 levels")
+
+#Environment Satisfaction (*Even employees happy with this are leaving)
+ggplot(work10, aes(x=factor(Attrition)))+geom_bar(aes(y=(..count..)/sum(..count..), fill=as.factor(EnvironmentSatisfaction)))+
+  scale_y_continuous(labels=percent)+xlab("No=Stay with Co. Yes=Leave Co")+ylab("Overall Percent")+ggtitle("Environment Satisfaction at 4 levels")
+
+#Job Satisfaction  (*Not a Factor)
+ggplot(work10, aes(x=factor(Attrition)))+geom_bar(aes(y=(..count..)/sum(..count..), fill=as.factor(JobSatisfaction)))+
+  scale_y_continuous(labels=percent)+xlab("No=Stay with Co. Yes=Leave Co")+ylab("Overall Percent")+ggtitle("Job Satisfaction at 4 levels")
+
+#Business Travel (*Not a Factor)
+ggplot(work10, aes(x=factor(Attrition)))+geom_bar(aes(y=(..count..)/sum(..count..), fill=as.factor(BusinessTravel)))+
+  scale_y_continuous(labels=percent)+xlab("No=Stay with Co. Yes=Leave Co")+ylab("Overall Percent")+ggtitle("Business Travel at 3 Categories")
+```
+
+```{r}
+#WE ARE READY TO CREATE A MODEL USING FOUR VARIABLES DISCOVERED IN THE EDA THAT WE THINK IMPACTS THE DECISION TO LEAVE THE COMPANY
+#Isolating the columns we want to use to build the model
+Attrition = select(work10, MGR,MaritalStatus, Stockcode,Range,BusinessTravel, Timemgr, Attrition)
+Attrition
+summary(Attrition)
+
+#Data Partition
+set.seed(123)
+ind = sample(seq(1:length(Attrition$Attrition)),round(.7*length(Attrition$Attrition)))
+train = Attrition[ind,]
+test = Attrition[-ind,]
+
+model = naiveBayes(Attrition ~ MGR + MaritalStatus + Stockcode + Range + Timemgr, data=train)
+confusionMatrix(predict(model,test), test$Attrition)
+
+#Over Sample
+over <- ovun.sample(Attrition~.,data=train, method="over",N=998)$data
+table(over$Attrition)
+
+model2 = naiveBayes(Attrition ~ MGR + MaritalStatus + Stockcode + Range, data = over)
+confusionMatrix(predict(model2,test), test$Attrition)
+
+
+#Saving csv prediction file for Attrition
+A = predict(model2,test)
+A
+A1=data.frame(A)
+
+setDT(A1, keep.rownames=TRUE)[]
+A2 = setNames(A1, c("ID","Attrition"))
+A2
+
+write.csv(A2, file="C:/Users/181429/Desktop/Semester 1 Courses/Doing Data Science/Unit 14 and 15 Case Study 2//Case2PredicitonsCadenaAttrition.csv", row.names=FALSE)
+```
+
+```{r}
+#WHAT IS AN EMPLOYEE MOST LIKELY TO MAKE
+#Find a relationship between the response variable Income and an explanatory variable
+work9%>%ggplot(aes(x=TotalWorkingYears, y=MonthlyIncome))+geom_point()+ggtitle("Relationship between Working Years and Monthly Rate")+geom_smooth(method="lm")
+
+work11 = select(work9,ID, MonthlyIncome, TotalWorkingYears, JobLevel)
+
+
+#Multiple Linear Regression
+set.seed(123)
+ind = sample(seq(1:length(work11$MonthlyIncome)),round(.7*length(work11$MonthlyIncome)))
+train = work11[ind,]
+test = work11[-ind,]
+
+M = lm(MonthlyIncome~TotalWorkingYears+factor(JobLevel), data=train)
+M
+par(mfrow=c(2,2))
+plot(M)
+
+p2 = predict(M,test)
+error = test$MonthlyIncome-p2
+RMSE = sqrt(mean(error^2))
+RMSE
+p2
+
+#Saving csv prediction file for Monthly Income
+p3=data.frame(p2)
+p3
+
+setDT(p3, keep.rownames=TRUE)[]
+p4 = setNames(p3, c("ID","MonthlyIncome"))
+p4
+
+write.csv(p4, file="C:/Users/181429/Desktop/Semester 1 Courses/Doing Data Science/Unit 14 and 15 Case Study 2//Case2PredicitonsCadenaSalary.csv", row.names=FALSE)
+```
+
+
+
+
+
